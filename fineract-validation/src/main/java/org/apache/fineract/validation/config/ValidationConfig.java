@@ -18,7 +18,9 @@
  */
 package org.apache.fineract.validation.config;
 
+import com.ibm.icu.text.MessageFormat;
 import jakarta.validation.MessageInterpolator;
+
 import java.util.Locale;
 import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
