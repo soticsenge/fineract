@@ -1,5 +1,6 @@
 package org.apache.fineract.infrastructure.security.config;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -13,31 +14,41 @@ import jakarta.validation.constraints.NotNull;
 import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
 import org.apache.fineract.infrastructure.security.data.TenantAuthenticationDetails;
 import org.apache.fineract.infrastructure.security.service.BasicAuthTenantDetailsService;
+import org.apache.fineract.infrastructure.security.service.TenantAwareJpaPlatformUserDetailsService;
 import org.apache.fineract.useradministration.domain.AppUser;
 import org.apache.fineract.useradministration.domain.Role;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Scope;
 import org.springframework.core.annotation.Order;
+import org.springframework.core.convert.converter.Converter;
 import org.springframework.security.authentication.AuthenticationDetailsSource;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.factory.PasswordEncoderFactories;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
+import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
+import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
+import org.springframework.security.oauth2.core.OAuth2Error;
+import org.springframework.security.oauth2.core.OAuth2ErrorCodes;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.authorization.client.InMemoryRegisteredClientRepository;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClient;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClientRepository;
 import org.springframework.security.oauth2.server.authorization.settings.ClientSettings;
 import org.springframework.security.oauth2.server.authorization.token.JwtEncodingContext;
 import org.springframework.security.oauth2.server.authorization.token.OAuth2TokenCustomizer;
+import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
 import org.springframework.security.oauth2.server.resource.web.BearerTokenResolver;
 import org.springframework.security.oauth2.server.resource.web.DefaultBearerTokenResolver;
 import org.springframework.security.web.SecurityFilterChain;
@@ -52,6 +63,11 @@ import org.springframework.web.filter.OncePerRequestFilter;
 @ConditionalOnProperty("fineract.security.oauth.enabled")
 @EnableConfigurationProperties(ClientProperties.class)
 public class AuthorizationServerConfig {
+
+
+    @Autowired
+    private TenantAwareJpaPlatformUserDetailsService userDetailsService;
+
     @Bean
     @Order(1)
     public SecurityFilterChain publicEndpoints(HttpSecurity http) throws Exception {
@@ -86,7 +102,6 @@ public class AuthorizationServerConfig {
         return http.build();
     }
 
-
     @Bean
     @Order(3)
     public SecurityFilterChain protectedEndpoints(HttpSecurity http) throws Exception {
@@ -98,8 +113,20 @@ public class AuthorizationServerConfig {
                         .authenticationDetailsSource(tenantAuthDetailsSource())
                         .permitAll()
                 )
-                .oauth2ResourceServer(resourceServer -> resourceServer.jwt(Customizer.withDefaults()));
+                .oauth2ResourceServer(resourceServer -> resourceServer.jwt(jwt -> jwt.jwtAuthenticationConverter(authenticationConverter())));
         return http.build();
+    }
+
+    private Converter<Jwt, FineractJwtAuthenticationToken> authenticationConverter() {
+        return jwt -> {
+            try {
+                UserDetails user = userDetailsService.loadUserByUsername(jwt.getSubject());
+                Collection<GrantedAuthority> authorities = new JwtGrantedAuthoritiesConverter().convert(jwt);
+                return new FineractJwtAuthenticationToken(jwt, authorities, user);
+            } catch (UsernameNotFoundException ex) {
+                throw new OAuth2AuthenticationException(new OAuth2Error(OAuth2ErrorCodes.INVALID_TOKEN), ex);
+            }
+        };
     }
 
     @Bean
@@ -139,6 +166,7 @@ public class AuthorizationServerConfig {
                     ClientProperties.Registration reg = entry.getValue();
                     return RegisteredClient.withId(UUID.randomUUID().toString())
                             .clientId(reg.getClientId())
+                            .clientAuthenticationMethods(methods -> methods.add(ClientAuthenticationMethod.NONE))
                             .scopes(scopes -> scopes.addAll(reg.getScopes()))
                             .authorizationGrantTypes(grants -> reg.getAuthorizationGrantTypes()
                                     .forEach(grant -> grants.add(new AuthorizationGrantType(grant))))
