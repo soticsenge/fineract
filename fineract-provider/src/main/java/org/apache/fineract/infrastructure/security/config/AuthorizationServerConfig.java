@@ -26,6 +26,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.crypto.factory.PasswordEncoderFactories;
@@ -53,29 +54,42 @@ import org.springframework.web.filter.OncePerRequestFilter;
 public class AuthorizationServerConfig {
     @Bean
     @Order(1)
-    public SecurityFilterChain authorizationServerSecurityFilterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain publicEndpoints(HttpSecurity http) throws Exception {
+        // Public endpoints: permitAll, no JWT
+        http
+                .securityMatcher(
+                        "/swagger-ui/**",
+                        "/fineract.json",
+                        "/actuator/**",
+                        "/legacy-docs/apiLive.htm"
+                )
+                .authorizeHttpRequests(auth -> auth.anyRequest().permitAll())
+                .csrf(AbstractHttpConfigurer::disable);
 
-        OAuth2AuthorizationServerConfigurer authorizationServerConfigurer =
-                new OAuth2AuthorizationServerConfigurer();
+        return http.build();
+    }
+    @Bean
+    @Order(2)
+    public SecurityFilterChain authorizationServerSecurityFilterChain(HttpSecurity http) throws Exception {
+        OAuth2AuthorizationServerConfigurer authorizationServerConfigurer = new OAuth2AuthorizationServerConfigurer();
 
         http
-                .securityMatcher(authorizationServerConfigurer.getEndpointsMatcher())             // only OAuth2 endpoints
+                .securityMatcher(authorizationServerConfigurer.getEndpointsMatcher()) // only OAuth2 endpoints
                 .authorizeHttpRequests(auth -> auth.anyRequest().authenticated())
-                .csrf(csrf -> csrf.ignoringRequestMatchers(authorizationServerConfigurer.getEndpointsMatcher()))
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
                 .exceptionHandling(exceptions -> exceptions
-                        .authenticationEntryPoint(
-                                new LoginUrlAuthenticationEntryPoint("/login"))
+                        .authenticationEntryPoint(new LoginUrlAuthenticationEntryPoint("/login"))
                 )
                 .apply(authorizationServerConfigurer);
 
         return http.build();
     }
 
+
     @Bean
-    @Order(2)
-    public SecurityFilterChain appSecurity(HttpSecurity http) throws Exception {
+    @Order(3)
+    public SecurityFilterChain protectedEndpoints(HttpSecurity http) throws Exception {
         http
                 .csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests(auth -> auth.anyRequest().authenticated())
