@@ -99,8 +99,6 @@ public class AuthorizationServerConfig {
                         .permitAll()
                 )
                 .oauth2ResourceServer(resourceServer -> resourceServer.jwt(Customizer.withDefaults()));
-
-        // .authenticationDetailsSource(tenantAuthDetailsSource())
         return http.build();
     }
 
@@ -170,10 +168,7 @@ public class AuthorizationServerConfig {
         return context -> {
             UsernamePasswordAuthenticationToken authentication =
                     context.getPrincipal();
-            // TenantAuthenticationDetails details = (TenantAuthenticationDetails) authentication.getDetails();
             TenantAuthenticationDetails details = (TenantAuthenticationDetails) authentication.getDetails();
-            //TenantAuthenticationDetails details = new TenantAuthenticationDetails("mifos", "default", "password");
-
             AppUser appUser = (AppUser) authentication.getPrincipal();
             List<String> roles = appUser
                     .getRoles()
